@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>カラオケ採点</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@500;700;900&display=swap">
+<style>
+:root{--bg:#f7f3fb;--fg:#241338;--card:#fff;--mut:#6f6385;--bd:#e4d9f0;--pink:#e8246f;--cy:#0a9fb3;--track:#eadff5;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1a0f2e;--fg:#f4eefc;--card:#26183f;--mut:#a395bf;--bd:#3a2a5a;--pink:#ff4b8f;--cy:#35d6ea;--track:#3a2a5a;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#1a0f2e;--fg:#f4eefc;--card:#26183f;--mut:#a395bf;--bd:#3a2a5a;--pink:#ff4b8f;--cy:#35d6ea;--track:#3a2a5a;color-scheme:dark}
+*{box-sizing:inherit}
+html{height:100%}
+body{margin:0;min-height:100%;background:var(--bg);color:var(--fg);font-family:"Zen Maru Gothic","Hiragino Maru Gothic ProN","Hiragino Sans","Yu Gothic",sans-serif;font-weight:500;line-height:1.6}
+main{max-width:480px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:22px;font-weight:900;margin:4px 0 16px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:18px;padding:16px;margin-bottom:14px}
+.btn{display:block;width:100%;border:0;border-radius:14px;padding:16px;font:inherit;font-weight:900;font-size:18px;color:#fff;background:var(--pink);cursor:pointer}
+.btn:disabled{opacity:.4}
+.btn.alt{background:transparent;color:var(--fg);border:2px dashed var(--bd);font-size:16px;font-weight:700}
+.btn:focus-visible{outline:3px solid var(--cy);outline-offset:2px}
+.mut{color:var(--mut);font-size:14px;margin:8px 0 0}
+label.chk{display:flex;gap:10px;align-items:center;margin-top:12px;font-size:15px}
+label.chk input{width:22px;height:22px;accent-color:var(--pink)}
+.notes{display:flex;justify-content:space-around;text-align:center}
+.notes b{display:block;font-size:44px;line-height:1.1;font-weight:900}
+.notes small{color:var(--mut);font-size:13px}
+#nRef{color:var(--mut)}#nMe{color:var(--cy)}
+.meter{position:relative;height:56px;margin:14px 0 4px;border-radius:28px;background:var(--track);overflow:hidden}
+.meter .zone{position:absolute;left:41.7%;width:16.6%;top:0;bottom:0;background:color-mix(in srgb,var(--pink) 28%,transparent)}
+.meter .mid{position:absolute;left:50%;top:0;bottom:0;width:2px;background:var(--pink)}
+.meter .dot{position:absolute;top:8px;width:40px;height:40px;margin-left:-20px;border-radius:50%;background:var(--cy);left:50%;transition:left .08s linear,opacity .2s;opacity:.25}
+.scale{display:flex;justify-content:space-between;color:var(--mut);font-size:12px}
+.big{font-size:72px;font-weight:900;text-align:center;line-height:1.1;margin:4px 0}
+.big span{font-size:22px}
+.rank{text-align:center;font-weight:900;font-size:20px;color:var(--pink)}
+.sub{display:flex;gap:10px;margin-top:12px}
+.sub div{flex:1;text-align:center;background:var(--bg);border-radius:12px;padding:8px}
+.sub b{display:block;font-size:24px}.sub small{color:var(--mut);font-size:12px}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<main>
+<h1>カラオケ採点</h1>
+
+<div class="card">
+<label class="btn alt" for="file" id="pick">曲のファイルを選ぶ</label>
+<input id="file" type="file" accept="audio/*,.mp3,.m4a,.wav" hidden>
+<p class="mut" id="status">ボーカル入りの原曲（mp3 / m4a / wav）を選んでください。</p>
+<label class="chk"><input type="checkbox" id="useRef" checked disabled>お手本と比べて採点する</label>
+<p class="mut">スピーカーの音をマイクが拾うと採点がずれます。イヤホンで歌ってください。</p>
+</div>
+
+<div class="card">
+<div class="notes"><div><small>お手本</small><b id="nRef">–</b></div><div><small>あなた</small><b id="nMe">–</b></div></div>
+<div class="meter" aria-hidden="true"><div class="zone"></div><div class="mid"></div><div class="dot" id="dot"></div></div>
+<div class="scale"><span>低い</span><span>ぴったり</span><span>高い</span></div>
+</div>
+
+<button class="btn" id="go" disabled>歌う</button>
+
+<div class="card" id="result" hidden style="margin-top:14px">
+<div class="rank" id="rank"></div>
+<div class="big"><b id="total">0</b><span>点</span></div>
+<div class="sub"><div><b id="sPitch">–</b><small>音程</small></div><div><b id="sStab">–</b><small>安定感</small></div></div>
+</div>
+<audio id="au" playsinline></audio>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const au=$("au"),go=$("go");
+const HOP=512,FL=1024,FMIN=80,FMAX=1000;
+let ac,ref=null,refRate=0,stream,analyser,buf,timer,running=false,S;
+const midi=f=>69+12*Math.log2(f/440);
+const NAMES=["ド","ド#","レ","レ#","ミ","ファ","ファ#","ソ","ソ#","ラ","ラ#","シ"];
+const nm=m=>NAMES[((Math.round(m)-60)%12+12)%12];
+const sfold=x=>(((x+6)%12)+12)%12-6;
+
+function yin(x,sr){
+  const n=x.length;let e=0;for(let i=0;i<n;i++)e+=x[i]*x[i];
+  const rms=Math.sqrt(e/n);if(rms<0.012)return 0;
+  const tMax=Math.min(Math.floor(sr/FMIN),n>>1),tMin=Math.max(2,Math.floor(sr/FMAX)),W=n-tMax;
+  const d=new Float32Array(tMax+1);let run=0;
+  for(let t=1;t<=tMax;t++){let s=0;for(let i=0;i<W;i++){const v=x[i]-x[i+t];s+=v*v}run+=s;d[t]=run?s*t/run:1}
+  for(let t=tMin;t<tMax;t++){
+    if(d[t]<0.15){while(t+1<tMax&&d[t+1]<d[t])t++;
+      const a=d[t-1],b=d[t],c=d[t+1],den=a-2*b+c;
+      return sr/(t+(den?0.5*(a-c)/den:0));}
+  }
+  return 0;
+}
+
+async function analyze(file){
+  ac=ac||new AudioContext();
+  const a=await ac.decodeAudioData(await file.arrayBuffer());
+  const ch=a.numberOfChannels,fac=Math.max(1,Math.round(a.sampleRate/11025)),sr=a.sampleRate/fac;
+  const m=new Float32Array(Math.floor(a.length/fac)),cd=[];
+  for(let c=0;c<ch;c++)cd.push(a.getChannelData(c));
+  for(let i=0;i<m.length;i++){let s=0;for(let c=0;c<ch;c++)for(let k=0;k<fac;k++)s+=cd[c][i*fac+k];m[i]=s/(ch*fac)}
+  const nF=Math.floor((m.length-FL)/HOP),out=new Float32Array(nF);
+  for(let j=0;j<nF;j++){
+    const f=yin(m.subarray(j*HOP,j*HOP+FL),sr);out[j]=f?midi(f):0;
+    if(j%150===0){$("status").textContent="お手本を解析中… "+Math.round(j/nF*100)+"%";await new Promise(r=>setTimeout(r))}
+  }
+  refRate=sr/HOP;return out;
+}
+
+$("file").addEventListener("change",async e=>{
+  const f=e.target.files[0];if(!f)return;
+  if(running)stop(false);
+  au.src=URL.createObjectURL(f);ref=null;go.disabled=true;$("result").hidden=true;
+  $("useRef").disabled=true;$("useRef").checked=false;
+  $("pick").textContent="曲を変える";
+  try{
+    ref=await analyze(f);
+    $("useRef").disabled=false;$("useRef").checked=true;
+    $("status").textContent="準備OK：「"+f.name+"」";
+  }catch(err){
+    $("status").textContent="お手本の解析に失敗しました。お手本なしの採点で使えます。";
+  }
+  go.disabled=false;
+});
+
+function tick(){
+  analyser.getFloatTimeDomainData(buf);
+  const f=yin(buf,ac.sampleRate),m=f?midi(f):0,t=au.currentTime;
+  const useRef=$("useRef").checked&&ref;
+  S.P++;
+  if(m){S.V++;S.sSum+=1-Math.abs(m-Math.round(m))*1.2}
+  let rm=0,diff=null;
+  if(useRef){
+    const c=Math.round(t*refRate);rm=ref[c]||0;
+    if(rm){
+      S.N++;
+      if(m){
+        let best=99;
+        for(let k=-3;k<=3;k++){const v=ref[c+k];if(v){const d=Math.abs(sfold(m-v));if(d<best)best=d}}
+        S.pSum+=best<=0.7?1:best<=1.5?0.6:best<=2.5?0.25:0;
+        diff=sfold(m-rm);
+      }
+    }
+  }
+  $("nRef").textContent=rm?nm(rm):"–";
+  $("nMe").textContent=m?nm(m):"–";
+  const dot=$("dot");
+  if(!useRef&&m){diff=(m-Math.round(m))*2}
+  if(diff!==null){dot.style.opacity=1;dot.style.left=(50+Math.max(-3,Math.min(3,diff))/3*50)+"%"}else dot.style.opacity=.25;
+}
+
+function scores(){
+  const stab=S.V?S.sSum/S.V*Math.min(1,(S.V/Math.max(1,S.P))/0.5)*100:0;
+  const pitch=S.N>20?S.pSum/S.N*100:null;
+  const total=pitch!==null?0.7*pitch+0.3*stab:stab;
+  return{stab,pitch,total};
+}
+
+async function start(){
+  try{
+    ac=ac||new AudioContext();await ac.resume();
+    stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+  }catch(e){
+    const n=(e&&e.name)||"不明";
+    const hint=n==="NotAllowedError"?"許可が拒否されています。":n==="NotFoundError"?"マイクが見つかりません。":n==="NotReadableError"?"他のアプリがマイクを使用中の可能性があります。":n==="TypeError"?"このページではマイクを使えない環境です。":"";
+    $("status").textContent="マイクが使えません（"+n+"）。"+hint;return}
+  const src=ac.createMediaStreamSource(stream);
+  analyser=ac.createAnalyser();analyser.fftSize=2048;src.connect(analyser);buf=new Float32Array(2048);
+  S={P:0,V:0,N:0,sSum:0,pSum:0};
+  $("result").hidden=true;au.currentTime=0;
+  await au.play();running=true;go.textContent="やめる";
+  timer=setInterval(tick,50);
+}
+
+function stop(show){
+  clearInterval(timer);running=false;au.pause();
+  if(stream)stream.getTracks().forEach(t=>t.stop());
+  go.textContent="もう一度歌う";$("dot").style.opacity=.25;
+  if(show&&S&&S.P>20){
+    const r=scores(),t=Math.round(r.total);
+    $("total").textContent=t;
+    $("sPitch").textContent=r.pitch!==null?Math.round(r.pitch):"–";
+    $("sStab").textContent=Math.round(r.stab);
+    $("rank").textContent=t>=90?"神ってる！":t>=80?"とても上手！":t>=70?"いい感じ":t>=60?"もう少し":"次はもっと声を出そう";
+    $("result").hidden=false;$("result").scrollIntoView({behavior:"smooth"});
+  }
+}
+go.addEventListener("click",()=>running?stop(true):start());
+au.addEventListener("ended",()=>running&&stop(true));
+</script>
+</body>
+</html>
