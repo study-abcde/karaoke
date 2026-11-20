@@ -57,6 +57,7 @@ label.chk input{width:22px;height:22px;accent-color:var(--pink)}
 <div class="notes"><div><small>お手本</small><b id="nRef">–</b></div><div><small>あなた</small><b id="nMe">–</b></div></div>
 <div class="meter" aria-hidden="true"><div class="zone"></div><div class="mid"></div><div class="dot" id="dot"></div></div>
 <div class="scale"><span>低い</span><span>ぴったり</span><span>高い</span></div>
+<p class="mut" id="lvl">マイク入力：–</p>
 </div>
 
 <button class="btn" id="go" disabled>歌う</button>
@@ -126,6 +127,9 @@ $("file").addEventListener("change",async e=>{
 
 function tick(){
   analyser.getFloatTimeDomainData(buf);
+  let e=0;for(let i=0;i<buf.length;i++)e+=buf[i]*buf[i];
+  const lv=Math.sqrt(e/buf.length);
+  $("lvl").textContent="マイク入力："+"█".repeat(Math.min(20,Math.round(lv*200)))+" "+lv.toFixed(3);
   const f=yin(buf,ac.sampleRate,0.25,0.004),m=f?midi(f):0,t=au.currentTime;
   const useRef=$("useRef").checked&&ref;
   S.P++;
@@ -160,13 +164,14 @@ function scores(){
 async function start(){
   try{
     ac=ac||new AudioContext();await ac.resume();
-    stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+    stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:true}});
   }catch(e){
     const n=(e&&e.name)||"不明";
     const hint=n==="NotAllowedError"?"許可が拒否されています。":n==="NotFoundError"?"マイクが見つかりません。":n==="NotReadableError"?"他のアプリがマイクを使用中の可能性があります。":n==="TypeError"?"このページではマイクを使えない環境です。":"";
     $("status").textContent="マイクが使えません（"+n+"）。"+hint;return}
   const src=ac.createMediaStreamSource(stream);
   analyser=ac.createAnalyser();analyser.fftSize=2048;src.connect(analyser);buf=new Float32Array(2048);
+  const z=ac.createGain();z.gain.value=0;analyser.connect(z);z.connect(ac.destination);
   S={P:0,V:0,N:0,sSum:0,pSum:0};
   $("result").hidden=true;au.currentTime=0;
   await au.play();running=true;go.textContent="やめる";
