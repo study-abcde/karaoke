@@ -46,9 +46,11 @@ label.chk input{width:22px;height:22px;accent-color:var(--pink)}
 <h1>カラオケ採点</h1>
 
 <div class="card">
-<label class="btn alt" for="file" id="pick">曲のファイルを選ぶ</label>
+<label class="btn alt" for="file" id="pick">伴奏（歌うときに流す曲）を選ぶ</label>
 <input id="file" type="file" accept="audio/*,.mp3,.m4a,.wav" hidden>
-<p class="mut" id="status">ボーカル入りの原曲（mp3 / m4a / wav）を選んでください。</p>
+<label class="btn alt" for="vfile" id="vpick" style="margin-top:10px">声だけの音源（お手本）を選ぶ</label>
+<input id="vfile" type="file" accept="audio/*,.mp3,.m4a,.wav" hidden>
+<p class="mut" id="status">まず伴奏を選んでください。声だけの音源も選ぶと、お手本と比べて採点できます。2つは同じ長さ・同じタイミングのものを使ってください。</p>
 <label class="chk"><input type="checkbox" id="useRef" checked disabled>お手本と比べて採点する</label>
 <p class="mut">スピーカーの音をマイクが拾うと採点がずれます。イヤホンで歌ってください。</p>
 </div>
@@ -102,18 +104,18 @@ async function analyze(file){
   for(let i=0;i<m.length;i++){let s=0;for(let c=0;c<ch;c++)for(let k=0;k<fac;k++)s+=cd[c][i*fac+k];m[i]=s/(ch*fac)}
   const nF=Math.floor((m.length-FL)/HOP),out=new Float32Array(nF);
   for(let j=0;j<nF;j++){
-    const f=yin(m.subarray(j*HOP,j*HOP+FL),sr,0.4,0.003);out[j]=f?midi(f):0;
+    const f=yin(m.subarray(j*HOP,j*HOP+FL),sr,0.25,0.003);out[j]=f?midi(f):0;
     if(j%150===0){$("status").textContent="お手本を解析中… "+Math.round(j/nF*100)+"%";await new Promise(r=>setTimeout(r))}
   }
   refRate=sr/HOP;return out;
 }
 
-$("file").addEventListener("change",async e=>{
+$("vfile").addEventListener("change",async e=>{
   const f=e.target.files[0];if(!f)return;
   if(running)stop(false);
-  au.src=URL.createObjectURL(f);ref=null;go.disabled=true;$("result").hidden=true;
+  ref=null;$("result").hidden=true;
   $("useRef").disabled=true;$("useRef").checked=false;
-  $("pick").textContent="曲を変える";
+  $("vpick").textContent="お手本："+f.name;
   try{
     ref=await analyze(f);
     $("useRef").disabled=false;$("useRef").checked=true;
@@ -122,7 +124,7 @@ $("file").addEventListener("change",async e=>{
   }catch(err){
     $("status").textContent="お手本の解析に失敗しました。お手本なしの採点で使えます。";
   }
-  go.disabled=false;
+  
 });
 
 function tick(){
@@ -191,6 +193,13 @@ function stop(show){
     $("result").hidden=false;$("result").scrollIntoView({behavior:"smooth"});
   }
 }
+$("file").addEventListener("change",e=>{
+  const f=e.target.files[0];if(!f)return;
+  if(running)stop(false);
+  au.src=URL.createObjectURL(f);go.disabled=false;$("result").hidden=true;
+  $("pick").textContent="伴奏："+f.name;
+  if(!ref)$("status").textContent="伴奏OK。声だけの音源を選ぶとお手本と比べて採点できます（選ばなくても歌えます）。";
+});
 go.addEventListener("click",()=>running?stop(true):start());
 au.addEventListener("ended",()=>running&&stop(true));
 </script>
